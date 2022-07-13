@@ -14,60 +14,89 @@ import matplotlib.pyplot as plt
 import numpy as np
 import json
 import slamtec
+import threading
+import signal
 show_animation = False
-
+pose = None
 arrr = []
-with open('array.txt', 'r') as f:
-    arrr = json.load(f)
-print(arrr)
+# with open('array.txt', 'r') as f:
+#     arrr = json.load(f)
+# print(arrr)
 
-#рассчитать уравнение прямой между двумя точками
-def calc_line_equation(p1, p2):
-    if p1[0] == p2[0]:
-        m = float("inf")
-        c = p1[0]
-    else:
-        m = (p1[1] - p2[1]) / (p1[0] - p2[0])
-        c = p1[1] - m * p1[0]
-    return [m, c]
+# #рассчитать уравнение прямой между двумя точками
+# def calc_line_equation(p1, p2):
+#     if p1[0] == p2[0]:
+#         m = float("inf")
+#         c = p1[0]
+#     else:
+#         m = (p1[1] - p2[1]) / (p1[0] - p2[0])
+#         c = p1[1] - m * p1[0]
+#     return [m, c]
 
-#для всех точек из массива arrr получить уравнение прямой между двумя точками
-def get_line_equation(arrr):
-    line_equation = []
-    for i in range(len(arrr) - 1):
-        line_equation.append(calc_line_equation(arrr[i], arrr[i + 1]))
-    return line_equation
+# #для всех точек из массива arrr получить уравнение прямой между двумя точками
+# def get_line_equation(arrr):
+#     line_equation = []
+#     for i in range(len(arrr) - 1):
+#         line_equation.append(calc_line_equation(arrr[i], arrr[i + 1]))
+#     return line_equation
 
-arr_MC = get_line_equation(arrr)
-#для каждой пары точек из arrr сгенерировать точки между ними с шагом в 0.1
-def get_points_between_two_points(p1, p2):
-    points = []
-    m, c = calc_line_equation(p1, p2)
-    if m == float("inf"):
-        for i in range(p1[0], p2[0], 0.1):
-            points.append([i, p1[1]])
-    else:
-        for i in np.arange(p1[0], p2[0], 0.1):
-            points.append([i, m * i + c])
-    print(points)
-    return points
+# arr_MC = get_line_equation(arrr)
+# #для каждой пары точек из arrr сгенерировать точки между ними с шагом в 0.1
+# def get_points_between_two_points(p1, p2):
+#     points = []
+#     m, c = calc_line_equation(p1, p2)
+#     if m == float("inf"):
+#         for i in range(p1[0], p2[0], 0.1):
+#             points.append([i, p1[1]])
+#     else:
+#         for i in np.arange(p1[0], p2[0], 0.1):
+#             points.append([i, m * i + c])
+#     print(points)
+#     return points
 
 
 
-#построить график для всех точек из массива arrr
-def draw_graph(arrr):
-    points = []
-    for i in range(len(arrr) - 1):
-        points += get_points_between_two_points(arrr[i], arrr[i + 1])
-        plt.plot()
-    # print("**********************")
-    # plt.plot([x[0] for x in arrr], [x[1] for x in arrr], 'go')
-    # plt.plot([x[0] for x in points], [x[1] for x in points], 'o')
-    # plt.show()
-    return points
-draw_graph(arrr)
+# #построить график для всех точек из массива arrr
+# def draw_graph(arrr):
+#     points = []
+#     for i in range(len(arrr) - 1):
+#         points += get_points_between_two_points(arrr[i], arrr[i + 1])
+#         # plt.plot()
+#     # print("**********************")
+#     # plt.plot([x[0] for x in arrr], [x[1] for x in arrr], 'go')
+#     # plt.plot([x[0] for x in points], [x[1] for x in points], 'o')
+#     # plt.show()
+#     return points
+# draw_graph(arrr)
 
-arrr.extend(draw_graph(arrr))
+# arrr.extend(draw_graph(arrr))
+exit_event = threading.Event()
+def getData():
+    
+    sl = slamtec.SlamtecMapper("192.168.11.1",1445, False)
+    while True:
+        # if exit_event.is_set():
+        #     break
+
+        arr = sl.get_laser_scan(True)
+        pose = sl.get_pose()
+        arrr = []
+        for index in arr:
+
+            x = pose['x'] + index[1] * math.cos(index[0] + pose['yaw'])
+            y = pose['y'] + index[1] * math.sin(index[0] + pose['yaw'])
+            #Посчитать дистанцию между pose[x],pose[y] и x,y
+            dist = math.hypot(x - pose['x'], y - pose['y'])
+            if dist > 0.3:
+                arrr.append([x,y])
+
+
+def signal_handler(signum, frame):
+    exit_event.set()
+
+# signal.signal(signal.SIGINT, signal_handler)
+# a = threading.Thread(target=getData)
+# a.start()
 
 class BidirectionalBreadthFirstSearchPlanner:
 
@@ -228,15 +257,18 @@ class BidirectionalBreadthFirstSearchPlanner:
 
     def calc_final_path(self, goal_node, closed_set):
         # generate final course
-        rx, ry = [self.calc_grid_position(goal_node.x, self.min_x)], [
-            self.calc_grid_position(goal_node.y, self.min_y)]
-        n = closed_set[goal_node.parent_index]
-        while n is not None:
-            rx.append(self.calc_grid_position(n.x, self.min_x))
-            ry.append(self.calc_grid_position(n.y, self.min_y))
-            n = n.parent
-
-        return rx, ry
+        try:
+            rx, ry = [self.calc_grid_position(goal_node.x, self.min_x)], [
+                self.calc_grid_position(goal_node.y, self.min_y)]
+            n = closed_set[goal_node.parent_index]
+            while n is not None:
+                rx.append(self.calc_grid_position(n.x, self.min_x))
+                ry.append(self.calc_grid_position(n.y, self.min_y))
+                n = n.parent
+            return rx, ry
+        except Exception as e:
+            print(e)
+        return [], []
 
     def calc_grid_position(self, index, min_position):
         """
@@ -324,8 +356,8 @@ def main():
     # start and goal position
     sx = 0.0  # [m]
     sy = 0.0  # [m]
-    gx = 4.0  # [m]
-    gy = -1.0  # [m]
+    gx = 0.0  # [m]
+    gy = 3.0  # [m]
     grid_size = 0.1  # [m]
     robot_radius = 0.2  # [m]
 
@@ -335,38 +367,55 @@ def main():
      # set obstacle positions
     sl = slamtec.SlamtecMapper("192.168.11.1",1445, False)
 
+    import time
+
+    
+    fig = plt.figure("KKK")
+    ax = fig.gca()
+    fig.show()
+
     while True:
 
+        # if len(arrr) == 0 or pose == None:
+        #     continue 
         arr = sl.get_laser_scan(True)
         pose = sl.get_pose()
+
+        #очистить график
+        ax.cla()
 
         arrr = []
         for index in arr:
 
             x = pose['x'] + index[1] * math.cos(index[0] + pose['yaw'])
             y = pose['y'] + index[1] * math.sin(index[0] + pose['yaw'])
-            arrr.append([x,y])
+            #Посчитать дистанцию между pose[x],pose[y] и x,y
+            dist = math.hypot(x - pose['x'], y - pose['y'])
+            if dist > 0.3:
+                arrr.append([x,y])
 
-        # arrr.extend(draw_graph(arrr))
+        arrr.extend(arrr)
 
         ox = [x[0] for x in arrr]
         oy = [x[1] for x in arrr]
 
         # if show_animation:  # pragma: no cover
-        plt.plot(ox, oy, ".k")
-        plt.plot(sx, sy, "og")
-        plt.plot(gx, gy, "ob")
-        plt.grid(True)
-        plt.axis("equal")
+        ax.quiver(pose['x'], pose['y'], 1.0*math.cos(pose['yaw']), 1.0*math.sin(pose['yaw']), color='b', units='xy', scale=1)
+        ax.plot(ox, oy, ".k")
+        ax.plot(sx, sy, "og")
+        ax.plot(gx, gy, "ob")
+        ax.grid(True)
+        ax.axis("equal")
 
         bi_bfs = BidirectionalBreadthFirstSearchPlanner(
             ox, oy, grid_size, robot_radius)
         rx, ry = bi_bfs.planning(sx, sy, gx, gy)
 
         # if show_animation:  # pragma: no cover
-        plt.plot(rx, ry, "-r")
-        plt.pause(0.001)
-        plt.show()
+        ax.plot(rx, ry, "-r")
+
+        fig.canvas.draw()
+        plt.pause(0.1)
 
 
 if __name__ == '__main__':

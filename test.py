@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import math
 import time
 import json
+import asyncio
 # sl = slamtec.SlamtecMapper("192.168.11.1",1445, False)
 
 # arr = sl.get_laser_scan(True)
@@ -24,9 +25,9 @@ import json
 
 #получить массив из файла array.txt в формате json и привести его в виде массива
 arrr = []
-with open('array.txt', 'r') as f:
-    arrr = json.load(f)
-print(arrr)
+# with open('array.txt', 'r') as f:
+#     arrr = json.load(f)
+# print(arrr)
 
 #рассчитать уравнение прямой между двумя точками
 def calc_line_equation(p1, p2):
@@ -72,9 +73,9 @@ def draw_graph(arrr):
     # plt.plot([x[0] for x in points], [x[1] for x in points], 'o')
     # plt.show()
     return points
-draw_graph(arrr)
+# draw_graph(arrr)
 
-arrr.extend(draw_graph(arrr))
+# arrr.extend(draw_graph(arrr))
 
 import math
 from enum import Enum
@@ -108,19 +109,19 @@ class Config:
 
     def __init__(self):
         # robot parameter
-        self.max_speed = 1.0  # [m/s]
+        self.max_speed = 0.5  # [m/s]
         self.min_speed = -0.5  # [m/s]
-        self.max_yaw_rate = 40.0 * math.pi / 180.0  # [rad/s]
-        self.max_accel = 0.2  # [m/ss]
-        self.max_delta_yaw_rate = 40.0 * math.pi / 180.0  # [rad/ss]
+        self.max_yaw_rate = 20.0 * math.pi / 180.0  # [rad/s]
+        self.max_accel = 0.1  # [m/ss]
+        self.max_delta_yaw_rate = 10.0 * math.pi / 180.0  # [rad/ss]
         self.v_resolution = 0.01  # [m/s]
         self.yaw_rate_resolution = 0.1 * math.pi / 180.0  # [rad/s]
         self.dt = 0.1  # [s] Time tick for motion prediction
-        self.predict_time = 3.0  # [s]
+        self.predict_time = 1.0  # [s]
         self.to_goal_cost_gain = 0.15
         self.speed_cost_gain = 1.0
         self.obstacle_cost_gain = 1.0
-        self.robot_stuck_flag_cons = 0.05  # constant to prevent robot stucked
+        self.robot_stuck_flag_cons = 0.001  # constant to prevent robot stucked
         self.robot_type = RobotType.circle
 
         # if robot_type == RobotType.circle
@@ -340,39 +341,73 @@ def plot_robot(x, y, yaw, config):  # pragma: no cover
         plt.plot([x, out_x], [y, out_y], "-k")
 
 
+async def getDataa():
+    arr = sl.get_laser_scan(True)
+    pose = sl.get_pose()
+    # x = np.array([pose['x'], pose['y'], pose['yaw'], 0.0, 0.0])
+    arrr = []
+    for index in arr:
+
+        xx = pose['x'] + index[1] * math.cos(index[0] + pose['yaw'])
+        yy = pose['y'] + index[1] * math.sin(index[0] + pose['yaw'])
+        dist = math.hypot(xx - pose['x'], yy - pose['y'])
+        if dist > 0.3:
+            arrr.append([xx,yy])
+    return arrr
+
+import socket
+
+UDP_IP = "192.168.123.12"
+UDP_PORT = 13
+
+
+sock = socket.socket(socket.AF_INET, # Internet
+                     socket.SOCK_DGRAM) # UDP
+# sock.sendto(MESSAGE, (UDP_IP, UDP_PORT))
+
 # def main(gx=3.0, gy=-1.0, robot_type=RobotType.circle):
-def main(gx=3, gy=-1.0, robot_type=RobotType.circle):
+def main(gx=3, gy=1, robot_type=RobotType.circle):
     print(__file__ + " start!!")
+    sl = slamtec.SlamtecMapper("localhost",1446, False)
+    pose = sl.get_pose()
     # initial state [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
-    x = np.array([0.0, 0.0, math.pi / 8.0, 0.0, 0.0])
+    x = np.array([pose['x'], pose['y'], pose['yaw'], 0.0, 0.0])
     # goal position [x(m), y(m)]
     goal = np.array([gx, gy])
-
     # input [forward speed, yaw_rate]
 
     config.robot_type = robot_type
     trajectory = np.array(x)
     ob = config.ob
-
+    sock.sendto(f"1;11".encode(), (UDP_IP, UDP_PORT))
     while True:
         
-        # arr = sl.get_laser_scan(True)
-        # pose = sl.get_pose()
-        # print(arr)
+        arr = sl.get_laser_scan(True)
+        pose = sl.get_pose()
+        # x = np.array([pose['x'], pose['y'], pose['yaw'], 0.0, 0.0])
+        arrr = []
+        for index in arr:
 
-        # arrr = []
-        # for index in arr:
+            xx = pose['x'] + index[1] * math.cos(index[0] + pose['yaw'])
+            yy = pose['y'] + index[1] * math.sin(index[0] + pose['yaw'])
+            dist = math.hypot(xx - pose['x'], yy - pose['y'])
+            if dist > 0.3:
+                arrr.append([xx,yy])
 
-        #     xx = pose['x'] + index[1] * math.cos(index[0] + pose['yaw'])
-        #     yy = pose['y'] + index[1] * math.sin(index[0] + pose['yaw'])
-        #     arrr.append([xx,yy])
-
-        # ob = np.array(arrr)
+        ob = np.array(arrr)
 
         u, predicted_trajectory = dwa_control(x, config, goal, ob)
         x = motion(x, u, config.dt)  # simulate robot
         trajectory = np.vstack((trajectory, x))  # store state history
-
+        for i in predicted_trajectory[1:-1]:
+            # initial state [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
+            sock.sendto(f"3;1;{i[3]*(-0.73)};{i[4]}".encode(), (UDP_IP, UDP_PORT))
+            x = np.array([pose['x'], pose['y'], pose['yaw'], i[3], i[4]])
+            # time.sleep(0.1)
+            print(f"3;1;{i[3]*(-0.73)};{i[4]}")
+            
+        # print(predicted_trajectory)
+        # print(u)
         if show_animation:
             plt.cla()
             # for stopping simulation with the esc key.
@@ -403,7 +438,9 @@ def main(gx=3, gy=-1.0, robot_type=RobotType.circle):
     plt.show()
 
 if __name__ == '__main__':
+    # loop = asyncio.get_event_loop()
+    # loop.run_until_complete(main(robot_type=RobotType.circle))
+    # loop.close()
     main(robot_type=RobotType.circle)
-    # main(robot_type=RobotType.circle)
 
 
