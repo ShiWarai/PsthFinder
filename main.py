@@ -368,7 +368,7 @@ sock = socket.socket(socket.AF_INET, # Internet
 # def main(gx=3.0, gy=-1.0, robot_type=RobotType.circle):
 def main(gx=3, gy=1, robot_type=RobotType.circle):
     print(__file__ + " start!!")
-    sl = slamtec.SlamtecMapper("localhost",1446, False)
+    sl = slamtec.SlamtecMapper("localhost", 1446, False)
     pose = sl.get_pose()
     # initial state [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
     x = np.array([pose['x'], pose['y'], pose['yaw'], 0.0, 0.0])
@@ -385,6 +385,8 @@ def main(gx=3, gy=1, robot_type=RobotType.circle):
         arr = sl.get_laser_scan(True)
         pose = sl.get_pose()
         # x = np.array([pose['x'], pose['y'], pose['yaw'], 0.0, 0.0])
+
+
         arrr = []
         for index in arr:
 
@@ -403,7 +405,7 @@ def main(gx=3, gy=1, robot_type=RobotType.circle):
             # initial state [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
             sock.sendto(f"3;1;{i[3]*(-0.73)};{i[4]}".encode(), (UDP_IP, UDP_PORT))
             x = np.array([pose['x'], pose['y'], pose['yaw'], i[3], i[4]])
-            # time.sleep(0.1)
+            time.sleep(0.1)
             print(f"3;1;{i[3]*(-0.73)};{i[4]}")
             
         # print(predicted_trajectory)
