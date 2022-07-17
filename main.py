@@ -1,89 +1,51 @@
+import socket
 import slamtec
 import numpy as np
 import matplotlib.pyplot as plt
 import math
 import time
-import json
-import asyncio
-# sl = slamtec.SlamtecMapper("192.168.11.1",1445, False)
 
-# arr = sl.get_laser_scan(True)
-# pose = sl.get_pose()
-
-# arrr = []
-# for index in arr:
-
-#     x = pose['x'] + index[1] * math.cos(index[0] + pose['yaw'])
-#     y = pose['y'] + index[1] * math.sin(index[0] + pose['yaw'])
-#     arrr.append([x,y])
-
-# print(np.array(arrr))
-# #сохранить arrr в array.txt в форматe json
-# with open('array.txt', 'w') as f:
-#     json.dump(arrr, f)
-
-
-#получить массив из файла array.txt в формате json и привести его в виде массива
-arrr = []
-# with open('array.txt', 'r') as f:
-#     arrr = json.load(f)
-# print(arrr)
-
-#рассчитать уравнение прямой между двумя точками
-def calc_line_equation(p1, p2):
-    if p1[0] == p2[0]:
-        m = float("inf")
-        c = p1[0]
-    else:
-        m = (p1[1] - p2[1]) / (p1[0] - p2[0])
-        c = p1[1] - m * p1[0]
-    return [m, c]
-
-#для всех точек из массива arrr получить уравнение прямой между двумя точками
-def get_line_equation(arrr):
-    line_equation = []
-    for i in range(len(arrr) - 1):
-        line_equation.append(calc_line_equation(arrr[i], arrr[i + 1]))
-    return line_equation
-
-arr_MC = get_line_equation(arrr)
-#для каждой пары точек из arrr сгенерировать точки между ними с шагом в 0.1
-def get_points_between_two_points(p1, p2):
-    points = []
-    m, c = calc_line_equation(p1, p2)
-    if m == float("inf"):
-        for i in range(p1[0], p2[0], 0.1):
-            points.append([i, p1[1]])
-    else:
-        for i in np.arange(p1[0], p2[0], 0.1):
-            points.append([i, m * i + c])
-    print(points)
-    return points
-
-
-
-#построить график для всех точек из массива arrr
-def draw_graph(arrr):
-    points = []
-    for i in range(len(arrr) - 1):
-        points += get_points_between_two_points(arrr[i], arrr[i + 1])
-        plt.plot()
-    # print("**********************")
-    # plt.plot([x[0] for x in arrr], [x[1] for x in arrr], 'go')
-    # plt.plot([x[0] for x in points], [x[1] for x in points], 'o')
-    # plt.show()
-    return points
-# draw_graph(arrr)
-
-# arrr.extend(draw_graph(arrr))
-
-import math
 from enum import Enum
 
-import matplotlib.pyplot as plt
-import numpy as np
 
-show_animation = True
+def get_line_equation(p0: list, p1: list) -> list:
+    if p0[0] == p1[0]:
+        k = float("inf")
+        b = p0[0]
+    else:
+        k = (p0[1] - p1[1]) / (p0[0] - p1[0])
+        b = p0[1] - k * p0[0]
+    return [k, b]
+
+
+def get_line_equations(points: list) -> list:
+    line_equation = []
+    for i in range(len(points) - 1):
+        line_equation.append(get_line_equation(points[i], points[i + 1]))
+    return line_equation
+
+
+def get_points_between_two_points(p0: list, p1: list) -> list:
+    points = []
+    m, c = get_line_equation(p0, p1)
+    if m == float("inf"):
+        for i in range(p0[0], p1[0], 0.1):
+            points.append([i, p0[1]])
+    else:
+        for i in np.arange(p0[0], p1[0], 0.1):
+            points.append([i, m * i + c])
+    return points
+
+
+def draw_graph(points: list):
+    points_between = []
+    for i in range(len(points) - 1):
+        points_between += get_points_between_two_points(points[i], points[i + 1])
+
+    plt.plot()
+    plt.plot([x[0] for x in points], [x[1] for x in points], 'go')
+    plt.plot([x[0] for x in points_between], [x[1] for x in points_between], 'o')
+    plt.show()
 
 
 def dwa_control(x, config, goal, ob):
@@ -108,7 +70,18 @@ class Config:
     """
 
     def __init__(self):
-        # robot parameter
+        # application parameters
+        self.show_animation = True
+
+        # prediction parameters
+        self.dt = 0.1  # [s] Time tick for motion prediction
+        self.predict_time = 1.0  # [s]
+        self.to_goal_cost_gain = 0.15
+        self.speed_cost_gain = 1.0
+        self.obstacle_cost_gain = 1.0
+        self.robot_stuck_flag_cons = 5  # constant to prevent robot stucked
+
+        # robot parameters
         self.max_speed = 0.5  # [m/s]
         self.min_speed = -0.5  # [m/s]
         self.max_yaw_rate = 20.0 * math.pi / 180.0  # [rad/s]
@@ -116,72 +89,18 @@ class Config:
         self.max_delta_yaw_rate = 10.0 * math.pi / 180.0  # [rad/ss]
         self.v_resolution = 0.01  # [m/s]
         self.yaw_rate_resolution = 0.1 * math.pi / 180.0  # [rad/s]
-        self.dt = 0.1  # [s] Time tick for motion prediction
-        self.predict_time = 1.0  # [s]
-        self.to_goal_cost_gain = 0.15
-        self.speed_cost_gain = 1.0
-        self.obstacle_cost_gain = 1.0
-        self.robot_stuck_flag_cons = 0.001  # constant to prevent robot stucked
         self.robot_type = RobotType.circle
 
         # if robot_type == RobotType.circle
         # Also used to check if goal is reached in both types
-        self.robot_radius = 0.1  # [m] for collision check
+        self.robot_radius = 0.3  # [m] for collision check
 
         # if robot_type == RobotType.rectangle
         self.robot_width = 0.1  # [m] for collision check
         self.robot_length = 0.2  # [m] for collision check
-        # obstacles [x(m) y(m), ....]
-        # self.ob = np.array([[-1, -1],
-        #                     [0, 2],
-        #                     [4.0, 2.0],
-        #                     [5.0, 4.0],
-        #                     [5.0, 5.0],
-        #                     [5.0, 6.0],
-        #                     [5.0, 9.0],
-        #                     [8.0, 9.0],
-        #                     [7.0, 9.0],
-        #                     [8.0, 10.0],
-        #                     [9.0, 11.0],
-        #                     [12.0, 13.0],
-        #                     [12.0, 12.0],
-        #                     [15.0, 15.0],
-        #                     [13.0, 13.0]
-        #                     ])
-        # arr = sl.get_laser_scan(True)
-        # pose = sl.get_pose()
-        # print(arr)
-
-        # arrr = []
-        # for index in arr:
-
-        #     x = pose['x'] + index[1] * math.cos(index[0] + pose['yaw'])
-        #     y = pose['y'] + index[1] * math.sin(index[0] + pose['yaw'])
-        #     arrr.append([x,y])
-        
-        
-
-        self.ob = np.array(arrr)
-        # self.ob = np.array(np.random.uniform(0, 15, (15, 2)))
-
-    @property
-    def robot_type(self):
-        return self._robot_type
-
-    @robot_type.setter
-    def robot_type(self, value):
-        if not isinstance(value, RobotType):
-            raise TypeError("robot_type must be an instance of RobotType")
-        self._robot_type = value
 
 
-config = Config()
-
-def motion(x, u, dt):
-    """
-    motion model
-    """
-
+def calc_moving(x, u, dt):
     x[2] += u[1] * dt
     x[0] += u[0] * math.cos(x[2]) * dt
     x[1] += u[0] * math.sin(x[2]) * dt
@@ -222,7 +141,7 @@ def predict_trajectory(x_init, v, y, config):
     trajectory = np.array(x)
     time = 0
     while time <= config.predict_time:
-        x = motion(x, [v, y], config.dt)
+        x = calc_moving(x, [v, y], config.dt)
         trajectory = np.vstack((trajectory, x))
         time += config.dt
 
@@ -313,10 +232,11 @@ def calc_to_goal_cost(trajectory, goal):
     return cost
 
 
-def plot_arrow(x, y, yaw, length=0.5, width=0.1):  # pragma: no cover
+def plot_arrow(x, y, yaw, length=0.5, width=0.1):
     plt.arrow(x, y, length * math.cos(yaw), length * math.sin(yaw),
               head_length=width, head_width=width)
     plt.plot(x, y)
+
 
 def plot_robot(x, y, yaw, config):  # pragma: no cover
     if config.robot_type == RobotType.rectangle:
@@ -341,108 +261,80 @@ def plot_robot(x, y, yaw, config):  # pragma: no cover
         plt.plot([x, out_x], [y, out_y], "-k")
 
 
-async def getDataa():
-    arr = sl.get_laser_scan(True)
-    pose = sl.get_pose()
-    # x = np.array([pose['x'], pose['y'], pose['yaw'], 0.0, 0.0])
-    arrr = []
-    for index in arr:
-
-        xx = pose['x'] + index[1] * math.cos(index[0] + pose['yaw'])
-        yy = pose['y'] + index[1] * math.sin(index[0] + pose['yaw'])
-        dist = math.hypot(xx - pose['x'], yy - pose['y'])
-        if dist > 0.3:
-            arrr.append([xx,yy])
-    return arrr
-
-import socket
-
-UDP_IP = "192.168.123.12"
-UDP_PORT = 13
-
-
-sock = socket.socket(socket.AF_INET, # Internet
-                     socket.SOCK_DGRAM) # UDP
-# sock.sendto(MESSAGE, (UDP_IP, UDP_PORT))
-
-# def main(gx=3.0, gy=-1.0, robot_type=RobotType.circle):
-def main(gx=3, gy=1, robot_type=RobotType.circle):
-    print(__file__ + " start!!")
+def main(config, robot_socket, gx=0, gy=0):
     sl = slamtec.SlamtecMapper("localhost", 1446, False)
+
+    # pose {'code': 1, 'pitch': 0.0, 'roll': 0.0, 'timestamp': 0, 'x': 0.0, 'y': 0.0, 'yaw': 0, 'z': 0.0}
     pose = sl.get_pose()
     # initial state [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
-    x = np.array([pose['x'], pose['y'], pose['yaw'], 0.0, 0.0])
+    robot_states = np.array([pose['x'], pose['y'], pose['yaw'], 0.0, 0.0])
     # goal position [x(m), y(m)]
     goal = np.array([gx, gy])
-    # input [forward speed, yaw_rate]
 
-    config.robot_type = robot_type
-    trajectory = np.array(x)
-    ob = config.ob
-    sock.sendto(f"1;11".encode(), (UDP_IP, UDP_PORT))
+    trajectory = np.array(robot_states)
+    robot_socket.sendto(f"1;11".encode(), (UDP_IP, UDP_PORT))
+
     while True:
-        
-        arr = sl.get_laser_scan(True)
+
+        laser_points = sl.get_laser_scan(True)
         pose = sl.get_pose()
-        # x = np.array([pose['x'], pose['y'], pose['yaw'], 0.0, 0.0])
 
-
-        arrr = []
-        for index in arr:
-
+        arr = []
+        for index in laser_points:
             xx = pose['x'] + index[1] * math.cos(index[0] + pose['yaw'])
             yy = pose['y'] + index[1] * math.sin(index[0] + pose['yaw'])
             dist = math.hypot(xx - pose['x'], yy - pose['y'])
-            if dist > 0.3:
-                arrr.append([xx,yy])
+            if dist > 0:
+                arr.append([xx, yy])
 
-        ob = np.array(arrr)
+        obstacles = np.array(arr)
 
-        u, predicted_trajectory = dwa_control(x, config, goal, ob)
-        x = motion(x, u, config.dt)  # simulate robot
-        trajectory = np.vstack((trajectory, x))  # store state history
+        u, predicted_trajectory = dwa_control(robot_states, config, goal, obstacles)
+        robot_states = calc_moving(robot_states, u, config.dt)  # simulate robot
+        trajectory = np.vstack((trajectory, robot_states))  # store state history
         for i in predicted_trajectory[1:-1]:
             # initial state [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
-            sock.sendto(f"3;1;{i[3]*(-0.73)};{i[4]}".encode(), (UDP_IP, UDP_PORT))
-            x = np.array([pose['x'], pose['y'], pose['yaw'], i[3], i[4]])
-            time.sleep(0.1)
-            print(f"3;1;{i[3]*(-0.73)};{i[4]}")
-            
-        # print(predicted_trajectory)
+            robot_socket.sendto(f"3;1;{i[3] * (-0.73)};{i[4]}".encode(), (UDP_IP, UDP_PORT))
+            robot_states = np.array([pose['x'], pose['y'], pose['yaw'], i[3], i[4]])
+            time.sleep(config.dt)
+            print(f"3;1;{i[3] * (-0.73)};{i[4]}")
+
         # print(u)
-        if show_animation:
+        if config.show_animation:
             plt.cla()
             # for stopping simulation with the esc key.
             plt.gcf().canvas.mpl_connect(
                 'key_release_event',
                 lambda event: [exit(0) if event.key == 'escape' else None])
             plt.plot(predicted_trajectory[:, 0], predicted_trajectory[:, 1], "-g")
-            plt.plot(x[0], x[1], "xr")
+            plt.plot(robot_states[0], robot_states[1], "xr")
             plt.plot(goal[0], goal[1], "xb")
-            plt.plot(ob[:, 0], ob[:, 1], "ok")
-            plot_robot(x[0], x[1], x[2], config)
-            plot_arrow(x[0], x[1], x[2])
+            plt.plot(obstacles[:, 0], obstacles[:, 1], "ok")
+            plot_robot(robot_states[0], robot_states[1], robot_states[2], config)
+            plot_arrow(robot_states[0], robot_states[1], robot_states[2])
             plt.axis("equal")
             plt.grid(True)
             plt.pause(0.0001)
 
         # check reaching goal
-        dist_to_goal = math.hypot(x[0] - goal[0], x[1] - goal[1])
+        dist_to_goal = math.hypot(robot_states[0] - goal[0], robot_states[1] - goal[1])
         if dist_to_goal <= config.robot_radius:
-            print("Goal!!")
+            print("!!! Goal !!!")
             break
 
     print("Done")
-    if show_animation:
+    if config.show_animation:
+        plt.cla()
+        plt.plot(obstacles[:, 0], obstacles[:, 1], "ok")
         plt.plot(trajectory[:, 0], trajectory[:, 1], "-r")
-        plt.pause(0.0001)
+        plt.show()
 
-    plt.show()
 
 if __name__ == '__main__':
-    # loop = asyncio.get_event_loop()
-    # loop.run_until_complete(main(robot_type=RobotType.circle))
-    # loop.close()
-    main(robot_type=RobotType.circle)
 
+    UDP_IP = "192.168.123.12"
+    UDP_PORT = 13
 
+    socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    main(Config(), socket, gx=3, gy=1)
