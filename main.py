@@ -327,6 +327,9 @@ def main(config, robot_socket, gx=0, gy=0):
         plt.cla()
         plt.plot(obstacles[:, 0], obstacles[:, 1], "ok")
         plt.plot(trajectory[:, 0], trajectory[:, 1], "-r")
+        plt.plot(goal[0], goal[1], "xb")
+        plt.axis("equal")
+        plt.grid(True)
         plt.show()
 
 
