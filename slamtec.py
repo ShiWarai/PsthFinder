@@ -152,41 +152,18 @@ class SlamtecMapper:
         bytes_per_row = 12
         data = []
         while pos < len(decompressed):
-            parts = struct.unpack("f f h h", decompressed[pos:pos + bytes_per_row])
-
+            parts = struct.unpack("f f ? 3s", decompressed[pos:pos + bytes_per_row])
             pos += bytes_per_row
+
             distance = parts[0]
             angle_radian = parts[1]
-            # todo: decode the remaining bytes
-            if distance == 100000.0:
+            valid = parts[2]
+            if not valid:
                 if valid_only:
                     continue
                 valid = False
-            else:
-                valid = True
-            # print(f"distance: {distance:.4f}m, angle {math.degrees(angle_radian):.2f}°, valid {valid}")
-            # if distance < 1:
-            #     continue
-
-            frame_thickness = 0.16
-
-            if (-frame_thickness - (math.pi / 4)) < angle_radian < (frame_thickness - (math.pi / 4)):
-                # print("Left-front side: ", distance)
-                continue
-            elif (-frame_thickness + (math.pi / 4)) < angle_radian < (frame_thickness + (math.pi / 4)):
-                # print("Right-front side: ", distance)
-                continue
-            elif (-frame_thickness - (math.pi/2 + math.pi / 4)) < angle_radian < (frame_thickness - (math.pi/2 + math.pi / 4)):
-                # print("Left-back side: ", distance)
-                continue
-            elif (-frame_thickness + (math.pi/2 + math.pi / 4)) < angle_radian < (frame_thickness + (math.pi/2 + math.pi / 4)):
-                # print("Right-back side: ", distance)
-                continue
 
             data.append((angle_radian, distance, valid))
-            # if 1.5 < distance < 1.7:
-            #     data.append((angle_radian, distance, valid))
-            #     print(data)
             pos += bytes_per_row
 
         return data

@@ -278,6 +278,8 @@ def main(config, robot_socket, gx=0, gy=0):
 
         laser_points = sl.get_laser_scan(True)
         pose = sl.get_pose()
+        robot_states = np.array([pose['x'], pose['y'], pose['yaw'], robot_states[3], robot_states[4]])
+        print(f"Robot in {robot_states}")
 
         arr = []
         for index in laser_points:
@@ -291,6 +293,7 @@ def main(config, robot_socket, gx=0, gy=0):
 
         u, predicted_trajectory = dwa_control(robot_states, config, goal, obstacles)
         robot_states = calc_moving(robot_states, u, config.dt)  # simulate robot
+        print(f"Robot should be in {robot_states}")
         trajectory = np.vstack((trajectory, robot_states))  # store state history
         for i in predicted_trajectory[1:-1]:
             # initial state [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
@@ -320,6 +323,8 @@ def main(config, robot_socket, gx=0, gy=0):
         dist_to_goal = math.hypot(robot_states[0] - goal[0], robot_states[1] - goal[1])
         if dist_to_goal <= config.robot_radius:
             print("!!! Goal !!!")
+            robot_socket.sendto(f"3;1;{0};{0}".encode(), (UDP_IP, UDP_PORT))
+            # there should be stop-command
             break
 
     print("Done")
