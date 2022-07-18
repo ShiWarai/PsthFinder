@@ -295,14 +295,13 @@ def main(config, robot_socket, gx=0, gy=0):
         robot_states = calc_moving(robot_states, u, config.dt)  # simulate robot
         print(f"Robot should be in {robot_states}")
         trajectory = np.vstack((trajectory, robot_states))  # store state history
-        for i in predicted_trajectory[1:-1]:
+        for i in predicted_trajectory[1:]:
             # initial state [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
             robot_socket.sendto(f"3;1;{i[3] * (-0.73)};{i[4]}".encode(), (UDP_IP, UDP_PORT))
-            robot_states = np.array([pose['x'], pose['y'], pose['yaw'], i[3], i[4]])
             time.sleep(config.dt)
             print(f"3;1;{i[3] * (-0.73)};{i[4]}")
 
-        # print(u)
+        robot_states = np.array(predicted_trajectory[-1])
         if config.show_animation:
             plt.cla()
             # for stopping simulation with the esc key.

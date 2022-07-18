@@ -158,13 +158,11 @@ class SlamtecMapper:
             distance = parts[0]
             angle_radian = parts[1]
             valid = parts[2]
-            if not valid:
-                if valid_only:
-                    continue
-                valid = False
+
+            if not valid and valid_only:
+                continue
 
             data.append((angle_radian, distance, valid))
-            pos += bytes_per_row
 
         return data
 
