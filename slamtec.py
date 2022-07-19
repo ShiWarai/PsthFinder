@@ -3,11 +3,9 @@ import socket
 import json
 import base64
 import math
-from pprint import pprint
 from pathlib import Path
 import struct
 import time
-import sys
 
 
 class SlamtecMapper:
@@ -247,30 +245,3 @@ def show_map(map_data):
 
     scaled_img = img.resize((map_data['dimension_x'] * scale, map_data['dimension_y'] * scale), Image.ANTIALIAS)
     scaled_img.show()
-
-
-if __name__ == '__main__':
-    # host = "192.168.11.1"
-    host = "192.168.123.234"
-    st = SlamtecMapper(host=host, port=1445, dump=True)
-    # show_summary(st)
-
-    data = st.get_laser_scan(valid_only=False)
-    csv = []
-    for angle, distance, valid in data:
-        csv.append(f"{angle},{distance},{math.degrees(angle)}")
-    p = Path("../../laser-full.csv")
-    p.write_text("\n".join(csv))
-    """
-    # st.get_all()
-    map_data = st.get_map_data()
-    show_map(map_data)
-    """
-    if "--clear-map" in sys.argv:
-        st.clear_map()
-    if "--stop-update" in sys.argv:
-        st.set_update(False)
-    if "--start-update" in sys.argv:
-        st.set_update(True)
-
-    st.disconnect()
