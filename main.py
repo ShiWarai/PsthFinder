@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 import numpy as np
 import matplotlib.pyplot as plt
 import math
@@ -210,60 +211,71 @@ def main(config, lidar, robot, gx=0, gy=0):
     robot.send_command(f"1;11")  # Head up
 
     while True:
+        try:
+            laser_points = lidar.get_laser_scan()
+            pose = lidar.get_pose()
+            print(
+                f"Robot in {[pose['x'], pose['y']]}, diff: {math.hypot(pose['x'] - robot_states[0], pose['y'] - robot_states[1])}")
+            robot_states = np.array([pose['x'], pose['y'], pose['yaw'], robot_states[3], robot_states[4]])
 
-        laser_points = lidar.get_laser_scan(True)
-        pose = lidar.get_pose()
-        print(
-            f"Robot in {[pose['x'], pose['y']]}, diff: {math.hypot(pose['x'] - robot_states[0], pose['y'] - robot_states[1])}")
-        robot_states = np.array([pose['x'], pose['y'], pose['yaw'], robot_states[3], robot_states[4]])
+            arr = []
+            for index in laser_points:
+                xx = pose['x'] + index[1] * math.cos(index[0] + pose['yaw'])
+                yy = pose['y'] + index[1] * math.sin(index[0] + pose['yaw'])
+                dist = math.hypot(xx - pose['x'], yy - pose['y'])
+                if dist > 0:
+                    arr.append([xx, yy])
 
-        arr = []
-        for index in laser_points:
-            xx = pose['x'] + index[1] * math.cos(index[0] + pose['yaw'])
-            yy = pose['y'] + index[1] * math.sin(index[0] + pose['yaw'])
-            dist = math.hypot(xx - pose['x'], yy - pose['y'])
-            if dist > 0:
-                arr.append([xx, yy])
+            obstacles = np.array(arr)
 
-        obstacles = np.array(arr)
+            u, predicted_trajectory = dwa_control(robot_states, config, goal, obstacles)
+            robot_states = calc_moving(robot_states, u, config.dt)  # simulate robot
+            # print(f"Robot should be in {robot_states}")
 
-        u, predicted_trajectory = dwa_control(robot_states, config, goal, obstacles)
-        robot_states = calc_moving(robot_states, u, config.dt)  # simulate robot
-        # print(f"Robot should be in {robot_states}")
+            trajectory = np.vstack((trajectory, robot_states))  # store state history
+            for i in predicted_trajectory[1:]:
+                # initial state [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
+                robot.send_command(f"3;1;{i[3] * (-1.0)};{i[4]}")
+                print(f"3;1;{i[3] * (-1.0)};{i[4]}")
+                time.sleep(config.dt)
 
-        trajectory = np.vstack((trajectory, robot_states))  # store state history
-        for i in predicted_trajectory[1:]:
-            # initial state [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
-            robot.send_command(f"3;1;{i[3] * (-1.0)};{i[4]}")
-            print(f"3;1;{i[3] * (-1.0)};{i[4]}")
-            time.sleep(config.dt)
+            robot_states = np.array(predicted_trajectory[-1])
+            if config.show_animation:
+                plt.cla()
+                # for stopping simulation with the esc key.
+                plt.gcf().canvas.mpl_connect(
+                    'key_release_event',
+                    lambda event: [exit(0) if event.key == 'escape' else None])
+                plt.plot(predicted_trajectory[:, 0], predicted_trajectory[:, 1], "-g")
+                plt.plot(robot_states[0], robot_states[1], "xr")
+                plt.plot(goal[0], goal[1], "xb")
+                plt.plot(obstacles[:, 0], obstacles[:, 1], "ok")
+                plot_robot(robot_states[0], robot_states[1], robot_states[2], config)
+                plot_arrow(robot_states[0], robot_states[1], robot_states[2])
+                plt.axis("equal")
+                plt.grid(True)
+                plt.pause(0.0001)
 
-        robot_states = np.array(predicted_trajectory[-1])
-        if config.show_animation:
-            plt.cla()
-            # for stopping simulation with the esc key.
-            plt.gcf().canvas.mpl_connect(
-                'key_release_event',
-                lambda event: [exit(0) if event.key == 'escape' else None])
-            plt.plot(predicted_trajectory[:, 0], predicted_trajectory[:, 1], "-g")
-            plt.plot(robot_states[0], robot_states[1], "xr")
-            plt.plot(goal[0], goal[1], "xb")
-            plt.plot(obstacles[:, 0], obstacles[:, 1], "ok")
-            plot_robot(robot_states[0], robot_states[1], robot_states[2], config)
-            plot_arrow(robot_states[0], robot_states[1], robot_states[2])
-            plt.axis("equal")
-            plt.grid(True)
-            plt.pause(0.0001)
-
-        # check reaching goal
-        dist_to_goal = math.hypot(robot_states[0] - goal[0], robot_states[1] - goal[1])
-        if dist_to_goal <= config.robot_radius:
-            print("!!! Goal !!!")
+            # check reaching goal
+            dist_to_goal = math.hypot(robot_states[0] - goal[0], robot_states[1] - goal[1])
+            if dist_to_goal <= config.robot_radius:
+                print("!!! Goal !!!")
+                robot.send_command(f"3;1;{0};{0}")
+                robot_states[3] = 0.0
+                robot_states[4] = 0.0
+                # FIXME: here should be stop-command
+                break
+        except TimeoutError:
             robot.send_command(f"3;1;{0};{0}")
-            # FIXME: here should be stop-command
-            break
+            robot_states[3] = 0.0
+            robot_states[4] = 0.0
 
-    print("Done")
+            print("!!! Connection loss !!!", "Try start again...")
+
+            while not lidar.restart():
+                print("Try start again...")
+
+
     if config.show_animation:
         plt.cla()
         plt.plot(obstacles[:, 0], obstacles[:, 1], "ok")
@@ -281,7 +293,8 @@ if __name__ == '__main__':
     SLAMTEC_PORT = 1446
 
     config = Config()
-    sl = slamtec.SlamtecMapper(SLAMTEC_IP, SLAMTEC_PORT, False)
+    sl = slamtec.SlamtecController(SLAMTEC_IP, SLAMTEC_PORT)
     controller = RobotController(ROBOT_IP, ROBOT_PORT)
 
-    main(config, sl, controller, gx=0, gy=0)
+    main(config, sl, controller, gx=4, gy=1)
+    print("Done")

@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+import queue
 import socket
 import json
 import base64
@@ -6,11 +6,13 @@ import math
 from pathlib import Path
 import struct
 import time
+from threading import Thread, Lock
 
 
 class SlamtecMapper:
-    def __init__(self, host, port, dump=False, dump_dir="dump"):
+    def __init__(self, host, port, timeout, dump=False, dump_dir="dump"):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.settimeout(timeout)
         self.socket.connect((host, port))
         self.request_id = 0
         self.dump = dump
@@ -245,3 +247,66 @@ def show_map(map_data):
 
     scaled_img = img.resize((map_data['dimension_x'] * scale, map_data['dimension_y'] * scale), Image.ANTIALIAS)
     scaled_img.show()
+
+
+class SlamtecController:
+    __device_controller: SlamtecMapper = None
+    __command_thread: classmethod = None
+    __current_func: classmethod = None
+    __current_args: tuple = None
+    __command_read_lock: Lock = None
+    __data_read_lock: Lock = None
+
+    def __init__(self, ip, port, timeout=3):
+        self.__device_ip = ip
+        self.__device_port = port
+        self.__timeout = timeout
+
+        self.__data = queue.Queue()
+
+        if not self.restart():
+            raise Exception("Can't connect to lidar!")
+
+    def __loop(self):
+        while True:
+            with self.__command_read_lock:
+                func = self.__current_func
+                args = self.__current_args
+            self.__command_read_lock.acquire()  # To prevent a new cycle
+
+            self.__data.put(func(*args))
+
+            self.__current_func, self.__current_args = None, None
+            self.__data_read_lock.release()
+
+    def __send_command(self, func, *args):
+        self.__current_func = func
+        self.__current_args = args
+        self.__command_read_lock.release()
+
+        try:
+            assert self.__data_read_lock.acquire(timeout=self.__timeout)
+            return self.__data.get()
+        except AssertionError:
+            raise TimeoutError
+
+    def get_laser_scan(self):
+        return self.__send_command(self.__device_controller.get_laser_scan, True)
+
+    def get_pose(self):
+        return self.__send_command(self.__device_controller.get_pose)
+
+    def restart(self) -> bool:
+        try:
+            self.__command_read_lock = Lock()
+            self.__data_read_lock = Lock()
+            self.__command_read_lock.acquire()
+            self.__data_read_lock.acquire()
+
+            self.__device_controller = SlamtecMapper(self.__device_ip, self.__device_port, False)
+
+            self.__command_thread = Thread(target=self.__loop)
+            self.__command_thread.start()
+            return True
+        except:
+            return False
