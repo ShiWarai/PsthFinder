@@ -13,6 +13,7 @@ class SlamtecMapper:
     def __init__(self, host, port, timeout, dump=False, dump_dir="dump"):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.settimeout(timeout)
+        self.socket.setblocking(True)
         self.socket.connect((host, port))
         self.request_id = 0
         self.dump = dump
@@ -263,6 +264,8 @@ class SlamtecController:
         self.__timeout = timeout
 
         self.__data = queue.Queue()
+        self.__command_read_lock = Lock()
+        self.__data_read_lock = Lock()
 
         if not self.restart():
             raise Exception("Can't connect to lidar!")
@@ -273,6 +276,7 @@ class SlamtecController:
                 func = self.__current_func
                 args = self.__current_args
             self.__command_read_lock.acquire()  # To prevent a new cycle
+            # print("BLOCK 3")
 
             self.__data.put(func(*args))
 
@@ -280,12 +284,14 @@ class SlamtecController:
             self.__data_read_lock.release()
 
     def __send_command(self, func, *args):
+        # print("NEW COMMAND!")
         self.__current_func = func
         self.__current_args = args
         self.__command_read_lock.release()
 
         try:
             assert self.__data_read_lock.acquire(timeout=self.__timeout)
+            # print("BLOCK 2")
             return self.__data.get()
         except AssertionError:
             raise TimeoutError
@@ -298,10 +304,19 @@ class SlamtecController:
 
     def restart(self) -> bool:
         try:
-            self.__command_read_lock = Lock()
-            self.__data_read_lock = Lock()
+            try:
+                self.__command_read_lock.release()
+            except RuntimeError:
+                pass
+
+            try:
+                self.__data_read_lock.release()
+            except RuntimeError:
+                pass
+
             self.__command_read_lock.acquire()
             self.__data_read_lock.acquire()
+            # print("BLOCK 1")
 
             self.__device_controller = SlamtecMapper(self.__device_ip, self.__device_port, False)
 
