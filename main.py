@@ -19,12 +19,9 @@ def calc_moving(x, u, dt):
     return x
 
 
-def calc_obstacle_cost(trajectory, ob, config):
-    """
-    calc obstacle cost inf: collision
-    """
-    ox = ob[:, 0]
-    oy = ob[:, 1]
+def is_any_points_in_collision(points, trajectory, config) -> (bool, float):
+    ox = points[:, 0]
+    oy = points[:, 1]
     dx = trajectory[:, 0] - ox[:, None]
     dy = trajectory[:, 1] - oy[:, None]
     r = np.hypot(dx, dy)
@@ -34,7 +31,7 @@ def calc_obstacle_cost(trajectory, ob, config):
         yaw = trajectory[:, 2]
         rot = np.array([[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]])
         rot = np.transpose(rot, [2, 0, 1])
-        local_ob = ob[:, None] - trajectory[:, 0:2]
+        local_ob = points[:, None] - trajectory[:, 0:2]
         local_ob = local_ob.reshape(-1, local_ob.shape[-1])
         local_ob = np.array([local_ob @ x for x in rot])
         local_ob = local_ob.reshape(-1, local_ob.shape[-1])
@@ -44,10 +41,22 @@ def calc_obstacle_cost(trajectory, ob, config):
         left_check = local_ob[:, 1] >= -config.robot_width / 2
         if (np.logical_and(np.logical_and(upper_check, right_check),
                            np.logical_and(bottom_check, left_check))).any():
-            return config.robot_bump_cost_gain + (1.0 / min_r)
+            return True, min_r
     elif config.robot_type == RobotType.circle:
         if np.array(r <= config.robot_radius).any():
-            return config.robot_bump_cost_gain + (1.0 / min_r)
+            return True, min_r
+
+    return False, min_r
+
+
+def calc_obstacle_cost(trajectory, ob, config):
+    """
+    calc obstacle cost inf: collision
+    """
+    is_collision, min_r = is_any_points_in_collision(ob, trajectory, config)
+
+    if is_collision:
+        return config.robot_bump_cost_gain + (1.0 / min_r)
 
     return 1.0 / min_r  # OK
 
@@ -257,8 +266,7 @@ def main(config, lidar, robot, gx=0, gy=0):
                 plt.pause(0.0001)
 
             # check reaching goal
-            dist_to_goal = math.hypot(robot_states[0] - goal[0], robot_states[1] - goal[1])
-            if dist_to_goal <= config.robot_radius:
+            if is_any_points_in_collision(np.array([[goal[0], goal[1]]]), np.array([robot_states, ]), config)[0]:
                 print("!!! Goal !!!")
                 robot.send_command(f"3;1;{0};{0}")
                 robot_states[3] = 0.0
@@ -269,12 +277,12 @@ def main(config, lidar, robot, gx=0, gy=0):
             robot.send_command(f"3;1;{0};{0}")
             robot_states[3] = 0.0
             robot_states[4] = 0.0
+            # FIXME: here should be stop-command
 
             print("!!! Connection loss !!!", "Try start again...")
 
             while not lidar.restart():
                 print("Try start again...")
-
 
     if config.show_animation:
         plt.cla()
@@ -296,5 +304,5 @@ if __name__ == '__main__':
     sl = slamtec.SlamtecController(SLAMTEC_IP, SLAMTEC_PORT)
     controller = RobotController(ROBOT_IP, ROBOT_PORT)
 
-    main(config, sl, controller, gx=4, gy=1)
+    main(config, sl, controller, gx=0, gy=0)
     print("Done")

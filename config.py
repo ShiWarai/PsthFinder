@@ -30,12 +30,12 @@ class Config:
         self.max_delta_yaw_rate = 40.0 * pi / 180.0  # [rad/ss]
         self.v_resolution = 0.01  # [m/s]
         self.yaw_rate_resolution = 1.0 * pi / 180.0  # [rad/s]
-        self.robot_type = RobotType.circle
+        self.robot_type = RobotType.rectangle
 
         # if robot_type == RobotType.circle
         # Also used to check if goal is reached in both types
         self.robot_radius = 0.3  # [m] for collision check
 
         # if robot_type == RobotType.rectangle
-        self.robot_width = 0.1  # [m] for collision check
-        self.robot_length = 0.2  # [m] for collision check
+        self.robot_width = 0.4 + 0.1  # [m] for collision check
+        self.robot_length = 0.45 * 2 + 0.1  # [m] for collision check
